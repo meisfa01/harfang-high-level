@@ -618,25 +618,19 @@ def AddPlane(
     color: hl.Color = hl.Color.White,
 ) -> hl.Node:
     """Initialize a 3d plane node in the scene. Returns *harfang.Node* object."""
-    ##CHANGED!!!!
-    m = hl.TransformationMat4(hl.Vec3(x, y, z), hl.Vec3(angle_x, angle_y, angle_z))
-    model = hl.CreatePlaneModel(gVal.vtx_layouts["PosFloatNormUInt8"], size_x, size_y, 2, 2)
-    model_ref = gVal.res.AddModel(f"plane_{x}_{y}_{z}_{angle_x}_{angle_y}_{angle_z}_{size_x}_{size_y}", model)
-    return hl.CreateObject(gVal.scene, m, model_ref, [getColoredMaterial(color)])
-
-    """
     AddPlaneM(
         hl.TransformationMat4(hl.Vec3(x, y, z), hl.Vec3(angle_x, angle_y, angle_z)),
         size_x,
         size_y,
         color,
     )
-    """
 
 
 def AddPlaneM(m: hl.Mat4, size_x: float = 1, size_y: float = 1, color: hl.Color = hl.Color.White) -> hl.Node:
+    pos = hl.GetT(m)
+    rot = hl.GetR(m)
     model = hl.CreatePlaneModel(gVal.vtx_layouts["PosFloatNormUInt8"], size_x, size_y, 2, 2)
-    model_ref = gVal.res.AddModel(f"plane_{x}_{y}_{z}_{angle_x}_{angle_y}_{angle_z}_{size_x}_{size_y}", model)
+    model_ref = gVal.res.AddModel(f"plane_{pos.x}_{pos.y}_{pos.z}_{rot.x}_{rot.y}_{rot.z}_{size_x}_{size_y}", model)
     return hl.CreateObject(gVal.scene, m, model_ref, [getColoredMaterial(color)])
 
 
@@ -1262,7 +1256,6 @@ def UpdateDraw():
 # DRAW IMMEDIATE FUNCTIONS
 ###############################################################################
 
-#Seems like None of the Drawxxx funtions are working as they are supposed to
 def DrawBox(
     x: float,
     y: float,
