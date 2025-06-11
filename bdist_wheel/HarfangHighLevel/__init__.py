@@ -23,6 +23,7 @@ import harfang as hl
 from HarfangHighLevel import LOD_Manager
 
 from typing import Union, Any, List, Dict
+from statistics import median
 
 if getattr(sys, "frozen", False):
     # If the application is run as a bundle, the PyInstaller bootloader
@@ -97,6 +98,16 @@ class GlobalVal:
     keyboard: hl.Keyboard = hl.Keyboard()
 
     EventNameElapsedSec = {}
+    flag_check_box0 = False
+    texture_on = None
+    texture_off = None
+    render_state_quad = None
+    mousexlist = []
+    mouseylist = []
+    #font_window = hl.MakeUniformSetValue("u_color", hl.Vec4(1.0, 1.0, 1.0, 1.0))
+    compliance_mode = False
+
+    
 
 
 gVal = GlobalVal()
@@ -165,6 +176,10 @@ def Init(width: int, height: int, activate_vr: bool = False):
 
     # create scene
     gVal.scene = hl.Scene()
+    gVal.scene.environment.fog_color = hl.Color.Grey     
+    gVal.scene.canvas.color = hl.Color.Grey               
+    
+    
 
     # create scene camera
     gVal.camera = hl.CreateCamera(
@@ -182,6 +197,7 @@ def Init(width: int, height: int, activate_vr: bool = False):
     # create vertex layout
     gVal.vtx_layouts["PosFloatNormUInt8"] = hl.VertexLayoutPosFloatNormUInt8()
     gVal.vtx_layouts["PosFloatColorUInt8"] = hl.VertexLayoutPosFloatColorUInt8()
+    gVal.vtx_layouts["PosFloatTexCoord0UInt8"] = hl.VertexLayoutPosFloatTexCoord0UInt8()
 
     vs_pos_tex0_decl = hl.VertexLayout()
     vs_pos_tex0_decl.Begin()
@@ -203,6 +219,8 @@ def Init(width: int, height: int, activate_vr: bool = False):
     gVal.shaders["font"] = hl.LoadProgramFromAssets("core/shader/font")
     gVal.shaders["tex0"] = hl.LoadProgramFromAssets("core/shader/texture")
     gVal.shaders["color"] = hl.LoadProgramFromAssets("core/shader/color")
+    gVal.render_state_quad = hl.ComputeRenderState(hl.BM_Alpha, hl.DT_Less, hl.FC_Disabled)
+
 
     # create default grey material
     gVal.materials["0.5_0.5_0.5"] = hl.CreateMaterial(
@@ -223,6 +241,12 @@ def Init(width: int, height: int, activate_vr: bool = False):
 
     gVal.scene.SetProbe(irradiance_map, radiance_map, brdf_map)
 
+    target_tex = hl.LoadTextureFromAssets("resources/visu/switch-on.png", 0)[0]
+    gVal.texture_on = hl.MakeUniformSetTexture("s_texTexture", target_tex, 0)
+
+    target_tex = hl.LoadTextureFromAssets("resources/visu/switch-off.png", 0)[0]
+    gVal.texture_off = hl.MakeUniformSetTexture("s_texTexture", target_tex, 0)
+
     # load font
     gVal.font = hl.LoadFontFromAssets(
         "NotoSans-Regular.ttf",
@@ -240,6 +264,7 @@ def Init(width: int, height: int, activate_vr: bool = False):
         gVal.mouse.GetState(),
         gVal.keyboard.GetState(),
     )
+
 
 
 def execute_assetc(input_path: str, output_path: str):
@@ -593,12 +618,20 @@ def AddPlane(
     color: hl.Color = hl.Color.White,
 ) -> hl.Node:
     """Initialize a 3d plane node in the scene. Returns *harfang.Node* object."""
+    ##CHANGED!!!!
+    m = hl.TransformationMat4(hl.Vec3(x, y, z), hl.Vec3(angle_x, angle_y, angle_z))
+    model = hl.CreatePlaneModel(gVal.vtx_layouts["PosFloatNormUInt8"], size_x, size_y, 2, 2)
+    model_ref = gVal.res.AddModel(f"plane_{x}_{y}_{z}_{angle_x}_{angle_y}_{angle_z}_{size_x}_{size_y}", model)
+    return hl.CreateObject(gVal.scene, m, model_ref, [getColoredMaterial(color)])
+
+    """
     AddPlaneM(
         hl.TransformationMat4(hl.Vec3(x, y, z), hl.Vec3(angle_x, angle_y, angle_z)),
         size_x,
         size_y,
         color,
     )
+    """
 
 
 def AddPlaneM(m: hl.Mat4, size_x: float = 1, size_y: float = 1, color: hl.Color = hl.Color.White) -> hl.Node:
@@ -1125,6 +1158,7 @@ def UpdateDraw():
     pass_view = hl.SceneForwardPipelinePassViewId()
 
     view_id, pass_view = hl.PrepareSceneForwardPipelineCommonRenderData(view_id, gVal.scene, gVal.render_data, gVal.pipeline, gVal.res, pass_view)
+    #gVal.compliance_mode = toggle_button("Mode ON" if gVal.compliance_mode else "Mode OFF", gVal.compliance_mode, 100, 300, view_id)
 
     # VR
     if gVal.activate_VR:
@@ -1199,6 +1233,7 @@ def UpdateDraw():
     # flush 3D model
     Flush3D()
 
+
     # flush 2D
     view_id = Flush2D(view_id)
 
@@ -1227,7 +1262,7 @@ def UpdateDraw():
 # DRAW IMMEDIATE FUNCTIONS
 ###############################################################################
 
-
+#Seems like None of the Drawxxx funtions are working as they are supposed to
 def DrawBox(
     x: float,
     y: float,
@@ -1920,3 +1955,59 @@ def PlaySound(file_path: str, repeat: bool = False, volume: float = 1, mat: hl.M
 
     print(f"ERROR SOUND: Can't handle extension {ext} from {file_path}")
     return None
+
+
+
+
+def toggle_button(label, value, x, y, view_id):
+	global has_switched
+	mat = hl.TransformationMat4(
+		hl.Vec3(x, y, 1), hl.Vec3(0, 0, 0), hl.Vec3(1, 1, 1))
+	pos = hl.GetT(mat)
+	axis_x = hl.GetX(mat) * 56
+	axis_y = hl.GetY(mat) * 24
+
+	toggle_vtx = hl.Vertices(gVal.vtx_layouts["PosFloatTexCoord0UInt8"], 4)
+	toggle_vtx.Begin(0).SetPos(
+		pos - axis_x - axis_y).SetTexCoord0(hl.Vec2(0, 1)).End()
+	toggle_vtx.Begin(1).SetPos(
+		pos - axis_x + axis_y).SetTexCoord0(hl.Vec2(0, 0)).End()
+	toggle_vtx.Begin(2).SetPos(
+		pos + axis_x + axis_y).SetTexCoord0(hl.Vec2(1, 0)).End()
+	toggle_vtx.Begin(3).SetPos(
+		pos + axis_x - axis_y).SetTexCoord0(hl.Vec2(1, 1)).End()
+	toggle_idx = [0, 3, 2, 0, 2, 1]
+
+	hl.DrawTriangles(view_id, toggle_idx, toggle_vtx, gVal.shaders["tex0"], [], [
+		gVal.texture_on if value else gVal.texture_off], gVal.render_state_quad)
+
+	if gVal.mouse.Down(hl.MB_0):
+		gVal.mousexlist.append(gVal.mouse.X())
+		gVal.mouseylist.append(gVal.mouse.Y())
+	else:
+		gVal.mousexlist.clear()
+		gVal.mouseylist.clear()
+		has_switched = False
+
+	if len(gVal.mousexlist) > 20:
+		gVal.mousexlist.pop(0)
+	if len(gVal.mouseylist) > 20:
+		gVal.mouseylist.pop(0)
+
+	if len(gVal.mouseylist) > 0:
+		mouse_x = median(gVal.mousexlist)
+		mouse_y = median(gVal.mouseylist)
+		if mouse_x > pos.x - axis_x.x and mouse_x < pos.x + axis_x.x and mouse_y > pos.y - axis_y.y and mouse_y < pos.y + axis_y.y and not has_switched:
+			value = True if not value else False
+			has_switched = True
+			gVal.mousexlist.clear()
+			gVal.mouseylist.clear()
+
+	mat = hl.TranslationMat4(hl.Vec3(pos.x + axis_x.x + 10, y - 10, 1))
+	hl.SetS(mat, hl.Vec3(1, -1, 1))
+	hl.DrawText(view_id,
+				gVal.font,
+				label, gVal.shaders["font"], "u_tex", 0,
+				mat, hl.Vec3(0, 0, 0), hl.DTHA_Left, hl.DTVA_Top,
+				[gVal.font], [], text_render_state)
+	return value
